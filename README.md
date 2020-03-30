@@ -1,41 +1,28 @@
-A macro for Dishonored 2 (and since then also Dishonored: Death of the Outsider and Dishonored 1),
-that allows you to bunnyhop without a freescroll mouse.
-
-Oh, and don't forget to bind `wheel down` to jump in game.
+A speedrunning-intended macro for DOOM Eternal that allows you to spam jump inputs without a freescroll mouse. 
 
 # Downloading and installing
 
-If you just want to get the macro, check the [releases tab](https://github.com/Som1Lse/Dish2Macro/releases), and download the latest `Dish2Macro.zip`. Extract the contents wherever you want, then run the exectuable.
+If you just want to get the macro, check the [releases tab](https://github.com/henyK/doom-eternal-macro/releases), and download the latest `DOOMEternalMacro.zip`. Extract the contents wherever you want, then run the exectuable.
 
-**The big green "Clone or download"-button is for the source code, not the program itself!**
 
-# Dish2Macro.txt
+# bindings.txt
 
-If you don't like using `space` you can change it in `Dish2Macro.txt` to a different key code.
+The default binding to use this macro is `middle mouse button`. If you don't like using `middle mouse button` you can change it in `bindings.txt` to a different key code.
 
-For a list of these key codes see [here](https://msdn.microsoft.com/en-us/library/windows/desktop/dd375731(v=vs.85).aspx).
+For a list of these key codes see [here](https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes).aspx).
 
-Here are a few sample configuration files:
+Here are two example configurations:
 
- - Bind `space` to spamming `wheel down`.
-    - `32` or
-    - `0x20` or
-    - `0x20 Down` or
-    - `0x20 0x0`
- - Bind `space` to spamming `wheel up`.
-    - `0x20 Up` or
-    - `0x0 0x20`
- - Bind `middle mouse button` (pressing the wheel itself) to spamming `wheel down`. (This is my preferred setup for Dishonored 2/Death of the Outsider.)
-    - `0x4 Down`
- - Bind `G` to spamming `wheel down`. (This is my preferred setup for Dishonored 1.)
-    - `0x47 Down`
- - Bind `G` to spamming `wheel down`, and `H` to spamming `wheel up`.
-    - `0x47 0x48`
+ - Bind `middle mouse button` to spamming `wheel down`.
+    - `4` or
+    - `0x04` or
+    - `0x04 Down`
+ - Bind `middle mouse button` to spamming `wheel up`.
+    - `0x04 Up` 
 
-and so on...
+To use the macro in-game, just hold down the respective key for as long as necessary. The macro will continuously spam jump inputs, just as a freescroll mousewheel that you would keep spinning.
+
 
 # Is this allowed in speedruns?
 
-Yes.
-
-Specifically any of the Dishonored games allow it.
+Currently all DOOM Eternal speedrun categories (Any%, 100%, All Collectibles) on the official leaderboard (https://www.speedrun.com/doom_eternal) allow this macro to be used. This is to level the playing field as quite a few glitches strongly benefit from using a freescroll mousewheel.
