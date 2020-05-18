@@ -9,22 +9,28 @@
 #include <cwchar>
 #include <cassert>
 
+#include <cstdio>
 #include <windows.h>
+#include <tlhelp32.h>
+#include <psapi.h>
+
+#include <tuple>
 
 using namespace std::literals;
 
 namespace {
 
-// Global variables are necessary, because Windows hooks have a terrible API.
 HHOOK mouseHook;
 HHOOK keyboardHook;
 
-constexpr unsigned spamDownBit = 0x1;
-constexpr unsigned spamUpBit = 0x2;
-std::atomic<unsigned> spamFlags(0);
-
 DWORD downKeyCode = 0;
 DWORD upKeyCode = 0;
+
+bool spamUp = false;
+bool spamDown = false;
+
+int upKeyRepeatCount = 0;
+int downKeyRepeatCount = 0;
 
 bool isGameInFocus() {
   auto window = GetForegroundWindow();
@@ -32,8 +38,7 @@ bool isGameInFocus() {
   constexpr int bufferSize = 35;
   wchar_t buffer[bufferSize];
 
-  std::wstring_view str = {buffer, static_cast<std::size_t>(GetClassNameW(
-                                       window, buffer, bufferSize))};
+  std::wstring_view str = {buffer, static_cast<std::size_t>(GetClassNameW(window, buffer, bufferSize))};
 									   
   if (str != L"Ghost_CLASS") {
     return false;
@@ -52,22 +57,26 @@ bool isGameInFocus() {
 }
 
 bool handleKey(DWORD keyCode, bool isDown) {
-  unsigned mask = 0;
-
   if (keyCode == downKeyCode) {
-    mask = spamDownBit;
-  } else if (keyCode == upKeyCode) {
-    mask = spamUpBit;
+    if (isDown) {
+      spamUp = false;
+      spamDown = true;
+    } else {
+      spamDown = false;
+    }
+   } 
+  
+  if (keyCode == upKeyCode) {
+    if (isDown) {
+      spamDown = false;
+      spamUp = true;
+    } else {
+      spamUp = false;
+    }
   }
 
-  if (mask == 0 || !isGameInFocus()) {
+  if ((!spamUp && !spamDown) || !isGameInFocus()) {
     return false;
-  }
-
-  if (isDown) {
-    spamFlags |= mask;
-  } else {
-    spamFlags &= ~mask;
   }
 
   return true;
@@ -94,7 +103,7 @@ LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wParam, LPARAM lParam) {
     }
     case WM_RBUTTONDOWN: {
       isDown = true;
-
+      
       [[fallthrough]];
     }
     case WM_RBUTTONUP: {
@@ -121,6 +130,17 @@ LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wParam, LPARAM lParam) {
 
       break;
     }
+    case WM_MOUSEWHEEL: {
+      if (spamUp || spamDown) {
+        MSLLHOOKSTRUCT* info = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+        bool scrollingDown = static_cast<std::make_signed_t<WORD>>(HIWORD(info->mouseData)) < 0;
+
+        // If macro is active prevent manual scrolling of the opposite direction for proper freescroll emulation
+        if (spamDown == !scrollingDown || spamUp == scrollingDown) {
+          return 1;
+        }        
+      }
+    }
   }
 
   handleKey(keyCode, isDown);
@@ -138,20 +158,47 @@ LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM wParam, LPARAM lParam) {
   auto& info = *reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
 
   auto isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+  
+  switch (wParam) {
+    case WM_KEYDOWN: {
+      [[fallthrough]];
+    }
+    case WM_SYSKEYDOWN: {
+      if (info.vkCode == upKeyCode) {
+        upKeyRepeatCount++;
+      }
+      else if (info.vkCode == downKeyCode) {
+        downKeyRepeatCount++;
+      }
+      break;
+    }
+    case WM_KEYUP: {
+      [[fallthrough]];
+    }
+    case WM_SYSKEYUP: {
+      if (info.vkCode == upKeyCode) {
+        upKeyRepeatCount = 0;
+      }
+      else if (info.vkCode == downKeyCode) {
+        downKeyRepeatCount = 0;
+      }
+      break;
+    }
+  }
 
-  handleKey(info.vkCode, isDown);
+  if (info.vkCode == upKeyCode && upKeyRepeatCount <= 1 || info.vkCode == downKeyCode && downKeyRepeatCount <= 1) {
+    handleKey(info.vkCode, isDown);
+  }
 
   return CallNextHookEx(keyboardHook, code, wParam, lParam);
 }
 
-DWORD getWheelDelta(unsigned flags) {
+DWORD getWheelDelta() {
   DWORD r = 0;
 
-  if ((flags & spamDownBit) != 0) {
+  if (spamDown) {
     r -= WHEEL_DELTA;
-  }
-
-  if ((flags & spamUpBit) != 0) {
+  } else if (spamUp) {
     r += WHEEL_DELTA;
   }
 
@@ -160,13 +207,14 @@ DWORD getWheelDelta(unsigned flags) {
 
 void CALLBACK TimerProc(void*, BOOLEAN) {
   if (isGameInFocus()) {
-    auto wheelDelta = getWheelDelta(spamFlags);
+    auto wheelDelta = getWheelDelta();
 
     if (wheelDelta != 0) {
       mouse_event(MOUSEEVENTF_WHEEL, 0, 0, wheelDelta, 0);
-    }
+    } 
   } else {
-    spamFlags = 0;
+    spamUp = false;
+    spamDown = false;
   }
 }
 
@@ -181,20 +229,17 @@ using unique_file = std::unique_ptr<std::FILE, FileDeleter>;
 // <num> <c>: <num> is the key for either scroll up or down depending on whether
 // or not <c> is `u` or not.
 // <num1> <num2>: <num1> is the scroll down key. <num2> is the scroll up key.
-void readConfiguration(const char* fileName) {
+void readConfiguration() {
+  auto fileName = "bindings.txt";
   unique_file file(std::fopen(fileName, "rb"));
   if (!file) {
-    throw std::runtime_error("Unable to open configuration file \""s +
-                             fileName + "\".");
+    throw std::runtime_error("Unable to open configuration file \""s + fileName + "\".");
   }
 
-  auto keyCodesRead =
-      std::fscanf(file.get(), "%li %li", &downKeyCode, &upKeyCode);
+  auto keyCodesRead = std::fscanf(file.get(), "%li %li", &downKeyCode, &upKeyCode);
 
   if (keyCodesRead < 1) {
-    throw std::runtime_error(
-        "Unable to read key code from configuration file \""s + fileName +
-        "\".");
+    throw std::runtime_error("Unable to read key code from configuration file \""s + fileName + "\".");
   }
 
   if (keyCodesRead < 2) {
@@ -211,33 +256,25 @@ void readConfiguration(const char* fileName) {
           break;
         }
         default: {
-          throw std::runtime_error(
-              "Invalid wheel direction '+"s + wheelDirection +
-              "+' in configuration file \"" + fileName + "\".");
+          throw std::runtime_error("Invalid wheel direction '+"s + wheelDirection + "+' in configuration file \"" + fileName + "\".");
         }
       }
     }
   }
 
   if (downKeyCode > VK_OEM_CLEAR) {
-    throw std::runtime_error("Invalid key code " + std::to_string(downKeyCode) +
-                             " in configuration file \""s + fileName + "\".");
+    throw std::runtime_error("Invalid key code " + std::to_string(downKeyCode) + " in configuration file \""s + fileName + "\".");
   }
 
   if (upKeyCode > VK_OEM_CLEAR) {
-    throw std::runtime_error("Invalid key code " + std::to_string(upKeyCode) +
-                             " in configuration file \""s + fileName + "\".");
+    throw std::runtime_error("Invalid key code " + std::to_string(upKeyCode) + " in configuration file \""s + fileName + "\".");
   }
 
   if (downKeyCode == upKeyCode) {
     if (downKeyCode == 0) {
-      throw std::runtime_error(
-          "No key was bound to either scroll direction in configuration file \""s +
-          fileName + "\".");
+      throw std::runtime_error("No key was bound to either scroll direction in configuration file \""s + fileName + "\".");
     } else {
-      throw std::runtime_error(
-          "Scroll up and scroll down both have the same binding in configuration file \""s +
-          fileName + "\".");
+      throw std::runtime_error("Scroll up and scroll down both have the same binding in configuration file \""s + fileName + "\".");
     }
   }
 }
@@ -252,53 +289,159 @@ bool isKeyboardKey(DWORD keyCode) {
 }
 }
 
+int strcompare(const char* One, const char* Two, bool CaseSensitive)
+{
+#if defined _WIN32 || defined _WIN64
+  return CaseSensitive ? strcmp(One, Two) : _stricmp(One, Two);
+#else
+  return CaseSensitive ? strcmp(One, Two) : strcasecmp(One, Two);
+#endif
+}
+
+MODULEENTRY32 getModuleInfo(std::uint32_t ProcessID, const char* ModuleName) {
+  void* hSnap = nullptr;
+  MODULEENTRY32 mod32 = { 0 };
+
+  if ((hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, ProcessID)) == INVALID_HANDLE_VALUE) {
+    return mod32;
+  }
+
+  mod32.dwSize = sizeof(MODULEENTRY32);
+  while (Module32Next(hSnap, &mod32)) {
+    if (!strcompare(ModuleName, mod32.szModule, false)) {
+      CloseHandle(hSnap);
+      return mod32;
+    }
+  }
+
+  CloseHandle(hSnap);
+  mod32 = { 0 };
+  return mod32;
+}
+
+uintptr_t getPointerByBaseSize(DWORD baseSize, uintptr_t pBaseAddr) {
+  uintptr_t pointer = NULL;
+  std::string platform = "unknown";
+
+  if (baseSize == 507191296 || baseSize == 515133440 || baseSize == 510681088) { // Old Steam versions
+    platform = "Steam";
+    pointer = pBaseAddr + 0x25B4A80;
+  } else if (baseSize == 450445312 || baseSize == 444944384) { // Old Bethesda versions
+    platform = "Bethesda";
+    pointer = pBaseAddr + 0x25818C0;
+  }
+  
+  // Commented out because of uncertainties with Denuvo AC running even in Singleplayer on the current version
+  /*else if (baseSize == 546783232) { // Current Steam version
+    platform = "Steam";
+    pointer = pBaseAddr + 0x2607348;
+  } else if (baseSize == 455708672) { // Current Bethesda version
+    platform = "Bethesda";
+    pointer = pBaseAddr + 0x25D4188;
+  }*/
+
+  std::cout << "Found " << platform << " game version (" << baseSize << ")" << std::endl;
+
+  return pointer;
+}
+
+bool writeBytesToFPSRow(HANDLE processHandle, uintptr_t pFPSRow) {
+  char bytesToWrite[] = "(M) %i FPS";
+
+  DWORD oldProtection;
+  VirtualProtectEx(processHandle, (LPVOID)pFPSRow, 10, PAGE_READWRITE, &oldProtection);
+  if (!WriteProcessMemory(processHandle, (LPVOID)pFPSRow, bytesToWrite, strlen(bytesToWrite) + 1, nullptr)) {
+    std::cerr << "Couldn't modify FPS counter display, exiting... (Code " << GetLastError() << ")" << std::endl;
+
+    return false;
+  }
+  VirtualProtectEx(processHandle, (LPVOID)pFPSRow, 10, oldProtection, nullptr);
+
+  return true;
+}
+
+bool modifyFPSDisplay() {
+  PROCESSENTRY32 entry;
+  entry.dwSize = sizeof(PROCESSENTRY32);
+
+  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+
+  if (Process32First(snapshot, &entry) == TRUE) {
+    while (Process32Next(snapshot, &entry) == TRUE) {
+      if (stricmp(entry.szExeFile, "DOOMEternalx64vk.exe") == 0) {
+        HANDLE processHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
+        MODULEENTRY32 moduleEntry = getModuleInfo(entry.th32ProcessID, "DOOMEternalx64vk.exe");
+
+        uintptr_t pFPSRow = getPointerByBaseSize(moduleEntry.modBaseSize, (uintptr_t) moduleEntry.modBaseAddr);
+        if (pFPSRow != NULL) {
+          return writeBytesToFPSRow(processHandle, pFPSRow);
+        }
+
+        return true;
+      }
+    }
+
+    std::cerr << "Error: Game is not running" << std::endl;
+    std::cerr << "- Make sure to start the game first, then the macro." << std::endl << std::endl;
+  }
+
+  return false;
+}
+
+void setupMouseHook() {
+  if (isMouseButton(downKeyCode) || isMouseButton(upKeyCode)) {
+    mouseHook = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, nullptr, 0);
+
+    if (!mouseHook) {
+      throw std::system_error(GetLastError(), std::system_category());
+    }
+  }
+}
+
+void setupKeyboardHook() {
+  if (isKeyboardKey(downKeyCode) || isKeyboardKey(upKeyCode)) {
+    keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, nullptr, 0);
+
+    if (!keyboardHook) {
+      throw std::system_error(GetLastError(), std::system_category());
+    }
+  }
+}
+
+void setupInputHooks() {
+  setupMouseHook();
+  setupKeyboardHook();
+}
+
+void startTimer() {
+  DWORD period = 10; // Execute every 10 milliseconds, 100 times a second.
+
+  HANDLE timer;
+  if (!CreateTimerQueueTimer(&timer, nullptr, TimerProc, nullptr, 0, period, WT_EXECUTEDEFAULT)) {
+    throw std::system_error(GetLastError(), std::system_category());
+  }
+
+  while (true) {
+    MSG message;
+    while (GetMessageW(&message, 0, 0, 0)) {
+      TranslateMessage(&message);
+      DispatchMessageW(&message);
+    }
+  }
+}
+
 int main(int argc, char** argv) {
   try {
     LPCTSTR consoleTitle = "DOOM Eternal Freescroll Macro";
     SetConsoleTitle(consoleTitle);
 
-    auto configFilename = "bindings.txt";
+    if (modifyFPSDisplay()) {
+      readConfiguration();
+      setupInputHooks();
 
-    if (argc >= 2) {
-      configFilename = argv[1];
-    }
+      std::cout << "Macro is running...\n";
 
-    readConfiguration(configFilename);
-
-    if (isMouseButton(downKeyCode) || isMouseButton(upKeyCode)) {
-      mouseHook = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, nullptr, 0);
-
-      if (!mouseHook) {
-        throw std::system_error(GetLastError(), std::system_category());
-      }
-    }
-
-    if (isKeyboardKey(downKeyCode) || isKeyboardKey(upKeyCode)) {
-      keyboardHook =
-          SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, nullptr, 0);
-
-      if (!keyboardHook) {
-        throw std::system_error(GetLastError(), std::system_category());
-      }
-    }
-
-    std::cout << "Macro is running...";
-
-    // Execute every 10 milliseconds, 100 times a second.
-    DWORD period = 10;
-
-    HANDLE timer;
-    if (!CreateTimerQueueTimer(&timer, nullptr, TimerProc, nullptr, 0, period,
-                               WT_EXECUTEDEFAULT)) {
-      throw std::system_error(GetLastError(), std::system_category());
-    }
-
-    for (;;) {
-      MSG message;
-      while (GetMessageW(&message, 0, 0, 0)) {
-        TranslateMessage(&message);
-        DispatchMessageW(&message);
-      }
+      startTimer();
     }
   } catch (std::exception& e) {
     std::fprintf(stderr, "Error: %s\n", e.what());
