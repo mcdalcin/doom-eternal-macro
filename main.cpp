@@ -339,7 +339,7 @@ uintptr_t getPointerByBaseSize(DWORD baseSize, uintptr_t pBaseAddr) {
 }
 
 bool writeBytesToFPSRow(HANDLE processHandle, uintptr_t pFPSRow) {
-  char bytesToWrite[] = "(M) %i FPS";
+  char bytesToWrite[] = "%i FPS (M)";
 
   DWORD oldProtection;
   VirtualProtectEx(processHandle, (LPVOID)pFPSRow, 10, PAGE_READWRITE, &oldProtection);
