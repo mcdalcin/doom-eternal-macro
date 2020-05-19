@@ -2,6 +2,7 @@
 #include <iostream>
 #include <string>
 
+#include <stdlib.h>
 #include <windows.h>
 #include <psapi.h>
 #include <tlhelp32.h>
@@ -20,6 +21,11 @@ namespace {
 
   int upKeyRepeatCount = 0;
   int downKeyRepeatCount = 0;
+
+  void waitForUserToExit() {
+    std::cout << "Press Enter to exit . . .";
+    std::cin.get();
+  }
 
   bool isGameInFocus() {
     auto window = GetForegroundWindow();
@@ -338,7 +344,7 @@ bool writeBytesToFPSRow(HANDLE processHandle, uintptr_t pFPSRow) {
   DWORD oldProtection;
   VirtualProtectEx(processHandle, (LPVOID)pFPSRow, 10, PAGE_READWRITE, &oldProtection);
   if (!WriteProcessMemory(processHandle, (LPVOID)pFPSRow, bytesToWrite, strlen(bytesToWrite) + 1, nullptr)) {
-    std::cerr << "Couldn't modify FPS counter display, exiting... (Code " << GetLastError() << ")" << std::endl;
+    throw std::runtime_error("Couldn't modify FPS counter display, exiting... (Code " + std::to_string(GetLastError()) + ")");
 
     return false;
   }
@@ -368,8 +374,7 @@ bool modifyFPSDisplay() {
       }
     }
 
-    std::cerr << "Error: Game is not running" << std::endl;
-    std::cerr << "- Make sure to start the game first, then the macro." << std::endl << std::endl;
+    throw std::runtime_error("Game is not running. Make sure to start the game first, then the macro.");
   }
 
   return false;
@@ -431,8 +436,8 @@ int main(int argc, char** argv) {
       startTimer();
     }
   } catch (std::exception& e) {
-    std::fprintf(stderr, "Error: %s\n", e.what());
-    std::getchar();
+    std::fprintf(stderr, "Error: %s\n\n", e.what());    
+    waitForUserToExit();
 
     return 1;
   }
