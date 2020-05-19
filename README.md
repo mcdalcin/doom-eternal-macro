@@ -1,21 +1,24 @@
-A speedrunning-intended macro for DOOM Eternal that allows you to spam jump inputs without a freescroll mouse. 
+A speedrunning-intended macro for DOOM Eternal that allows you to spam inputs without a freescroll mouse. 
 
 # Downloading and installing
 
-If you just want to get the macro, check the [releases tab](https://github.com/henyK/doom-eternal-macro/releases), and download the latest `DOOMEternalMacro.zip`. Extract the contents wherever you want, then run the executable.
+If you just want to get the macro, check the [releases tab](https://github.com/henyK/doom-eternal-macro/releases), and download the latest `DOOMEternalMacro.zip`. Extract the contents wherever you want, start the game and then run the executable.
 
 
 # bindings.txt
 
-The default binding for this macro is the `middle mouse button`. If you don't like using this specific key you can change it in `bindings.txt`. This file has the following format:
+The default bindings for this macro include the `middle mouse button` for `spam mousewheel down` & `X2 mouse button (side button)` for `spam mousewheel up`. If you don't like using these specific keys you can change them in `bindings.txt`. This file has the following format:
+`<key code down> <key code up>` or
 `<key code> <mousewheel direction>`
 
 For a list of possible key codes see [here](https://docs.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes).
 
-The mousewheel direction has to correspond with the direction that you bound `_jump` to ingame. If no direction is specified it defaults to `Down`.
+When using the second format variant, it defaults to `Down` if no direction is specified.
 
-Here are two examples:
+Here are some examples:
 
+ - Bind `middle mouse button` to spamming `wheel down` & `X2 mouse button` to spamming `wheel up`. Use:
+    - `0x04 0x06`
  - Bind `middle mouse button` to spamming `wheel down`. Use either:
     - `4` or
     - `0x04` or
@@ -23,7 +26,7 @@ Here are two examples:
  - Bind `middle mouse button` to spamming `wheel up`. Use:
     - `0x04 Up` 
 
-To activate the macro in-game, just hold down the respective key for as long as necessary. The macro will continuously spam jump inputs, just as a freescroll mousewheel that you would keep spinning.
+To activate the macro in-game, just hold down the respective key for as long as necessary. The macro will continuously spam inputs, just as a freescroll mousewheel that you would keep spinning.
 
 
 # Is this allowed in speedruns?
