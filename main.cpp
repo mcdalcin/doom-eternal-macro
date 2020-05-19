@@ -9,303 +9,300 @@
 using namespace std::literals;
 
 namespace {
+  HHOOK mouseHook;
+  HHOOK keyboardHook;
 
-HHOOK mouseHook;
-HHOOK keyboardHook;
+  DWORD downKeyCode = 0;
+  DWORD upKeyCode = 0;
 
-DWORD downKeyCode = 0;
-DWORD upKeyCode = 0;
+  bool spamUp = false;
+  bool spamDown = false;
 
-bool spamUp = false;
-bool spamDown = false;
+  int upKeyRepeatCount = 0;
+  int downKeyRepeatCount = 0;
 
-int upKeyRepeatCount = 0;
-int downKeyRepeatCount = 0;
+  bool isGameInFocus() {
+    auto window = GetForegroundWindow();
 
-bool isGameInFocus() {
-  auto window = GetForegroundWindow();
+    constexpr int bufferSize = 35;
+    wchar_t buffer[bufferSize];
 
-  constexpr int bufferSize = 35;
-  wchar_t buffer[bufferSize];
-
-  std::wstring_view str = {buffer, static_cast<std::size_t>(GetClassNameW(window, buffer, bufferSize))};
+    std::wstring_view str = {buffer, static_cast<std::size_t>(GetClassNameW(window, buffer, bufferSize))};
 									   
-  if (str != L"Ghost_CLASS") {
-    return false;
-  }
-
-  POINT point;
-
-  [[maybe_unused]] auto r = GetCursorPos(&point);
-  assert(r);
-
-  if (window != WindowFromPoint(point)) {
-    return false;
-  }
-
-  return true;
-}
-
-bool handleKey(DWORD keyCode, bool isDown) {
-  if (keyCode == downKeyCode) {
-    if (isDown) {
-      spamUp = false;
-      spamDown = true;
-    } else {
-      spamDown = false;
+    if (str != L"Ghost_CLASS") {
+      return false;
     }
-   } 
+
+    POINT point;
+
+    [[maybe_unused]] auto r = GetCursorPos(&point);
+    assert(r);
+
+    if (window != WindowFromPoint(point)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool handleKey(DWORD keyCode, bool isDown) {
+    if (keyCode == downKeyCode) {
+      if (isDown) {
+        spamUp = false;
+        spamDown = true;
+      } else {
+        spamDown = false;
+      }
+     } 
   
-  if (keyCode == upKeyCode) {
-    if (isDown) {
-      spamDown = false;
-      spamUp = true;
-    } else {
-      spamUp = false;
+    if (keyCode == upKeyCode) {
+      if (isDown) {
+        spamDown = false;
+        spamUp = true;
+      } else {
+        spamUp = false;
+      }
     }
+
+    if ((!spamUp && !spamDown) || !isGameInFocus()) {
+      return false;
+    }
+
+    return true;
   }
 
-  if ((!spamUp && !spamDown) || !isGameInFocus()) {
-    return false;
-  }
+  LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wParam, LPARAM lParam) {
+    if (code < HC_ACTION) {
+      return CallNextHookEx(mouseHook, code, wParam, lParam);
+    }
 
-  return true;
-}
+    assert(code == HC_ACTION);
 
-LRESULT CALLBACK LowLevelMouseProc(int code, WPARAM wParam, LPARAM lParam) {
-  if (code < HC_ACTION) {
+    DWORD keyCode = 0;
+    bool isDown = false;
+    switch (wParam) {
+      case WM_LBUTTONDOWN: {
+        isDown = true;
+
+        [[fallthrough]];
+      }
+      case WM_LBUTTONUP: {
+        keyCode = VK_LBUTTON;
+        break;
+      }
+      case WM_RBUTTONDOWN: {
+        isDown = true;
+      
+        [[fallthrough]];
+      }
+      case WM_RBUTTONUP: {
+        keyCode = VK_RBUTTON;
+        break;
+      }
+      case WM_MBUTTONDOWN: {
+        isDown = true;
+
+        [[fallthrough]];
+      }
+      case WM_MBUTTONUP: {
+        keyCode = VK_MBUTTON;
+        break;
+      }
+      case WM_XBUTTONDOWN: {
+        isDown = true;
+
+        [[fallthrough]];
+      }
+      case WM_XBUTTONUP: {
+        auto& info = *reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+        keyCode = VK_XBUTTON1 + HIWORD(info.mouseData) - XBUTTON1;
+
+        break;
+      }
+      case WM_MOUSEWHEEL: {
+        if (spamUp || spamDown) {
+          MSLLHOOKSTRUCT* info = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+          bool scrollingDown = static_cast<std::make_signed_t<WORD>>(HIWORD(info->mouseData)) < 0;
+
+          // If macro is active prevent manual scrolling of the opposite direction for proper freescroll emulation
+          if (spamDown == !scrollingDown || spamUp == scrollingDown) {
+            return 1;
+          }        
+        }
+      }
+    }
+
+    handleKey(keyCode, isDown);
+
     return CallNextHookEx(mouseHook, code, wParam, lParam);
   }
 
-  assert(code == HC_ACTION);
+  LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM wParam, LPARAM lParam) {
+    if (code < HC_ACTION) {
+      return CallNextHookEx(keyboardHook, code, wParam, lParam);
+    }
 
-  DWORD keyCode = 0;
-  bool isDown = false;
-  switch (wParam) {
-    case WM_LBUTTONDOWN: {
-      isDown = true;
+    assert(code == HC_ACTION);
 
-      [[fallthrough]];
-    }
-    case WM_LBUTTONUP: {
-      keyCode = VK_LBUTTON;
-      break;
-    }
-    case WM_RBUTTONDOWN: {
-      isDown = true;
-      
-      [[fallthrough]];
-    }
-    case WM_RBUTTONUP: {
-      keyCode = VK_RBUTTON;
-      break;
-    }
-    case WM_MBUTTONDOWN: {
-      isDown = true;
+    auto& info = *reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
 
-      [[fallthrough]];
-    }
-    case WM_MBUTTONUP: {
-      keyCode = VK_MBUTTON;
-      break;
-    }
-    case WM_XBUTTONDOWN: {
-      isDown = true;
-
-      [[fallthrough]];
-    }
-    case WM_XBUTTONUP: {
-      auto& info = *reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
-      keyCode = VK_XBUTTON1 + HIWORD(info.mouseData) - XBUTTON1;
-
-      break;
-    }
-    case WM_MOUSEWHEEL: {
-      if (spamUp || spamDown) {
-        MSLLHOOKSTRUCT* info = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
-        bool scrollingDown = static_cast<std::make_signed_t<WORD>>(HIWORD(info->mouseData)) < 0;
-
-        // If macro is active prevent manual scrolling of the opposite direction for proper freescroll emulation
-        if (spamDown == !scrollingDown || spamUp == scrollingDown) {
-          return 1;
-        }        
+    auto isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+  
+    switch (wParam) {
+      case WM_KEYDOWN: {
+        [[fallthrough]];
+      }
+      case WM_SYSKEYDOWN: {
+        if (info.vkCode == upKeyCode) {
+          upKeyRepeatCount++;
+        }
+        else if (info.vkCode == downKeyCode) {
+          downKeyRepeatCount++;
+        }
+        break;
+      }
+      case WM_KEYUP: {
+        [[fallthrough]];
+      }
+      case WM_SYSKEYUP: {
+        if (info.vkCode == upKeyCode) {
+          upKeyRepeatCount = 0;
+        }
+        else if (info.vkCode == downKeyCode) {
+          downKeyRepeatCount = 0;
+        }
+        break;
       }
     }
-  }
 
-  handleKey(keyCode, isDown);
+    if (info.vkCode == upKeyCode && upKeyRepeatCount <= 1 || info.vkCode == downKeyCode && downKeyRepeatCount <= 1) {
+      handleKey(info.vkCode, isDown);
+    }
 
-  return CallNextHookEx(mouseHook, code, wParam, lParam);
-}
-
-LRESULT CALLBACK LowLevelKeyboardProc(int code, WPARAM wParam, LPARAM lParam) {
-  if (code < HC_ACTION) {
     return CallNextHookEx(keyboardHook, code, wParam, lParam);
   }
 
-  assert(code == HC_ACTION);
+  DWORD getWheelDelta() {
+    DWORD r = 0;
 
-  auto& info = *reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
-
-  auto isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
-  
-  switch (wParam) {
-    case WM_KEYDOWN: {
-      [[fallthrough]];
+    if (spamDown) {
+      r -= WHEEL_DELTA;
+    } else if (spamUp) {
+      r += WHEEL_DELTA;
     }
-    case WM_SYSKEYDOWN: {
-      if (info.vkCode == upKeyCode) {
-        upKeyRepeatCount++;
-      }
-      else if (info.vkCode == downKeyCode) {
-        downKeyRepeatCount++;
-      }
-      break;
-    }
-    case WM_KEYUP: {
-      [[fallthrough]];
-    }
-    case WM_SYSKEYUP: {
-      if (info.vkCode == upKeyCode) {
-        upKeyRepeatCount = 0;
-      }
-      else if (info.vkCode == downKeyCode) {
-        downKeyRepeatCount = 0;
-      }
-      break;
-    }
+
+    return r;
   }
 
-  if (info.vkCode == upKeyCode && upKeyRepeatCount <= 1 || info.vkCode == downKeyCode && downKeyRepeatCount <= 1) {
-    handleKey(info.vkCode, isDown);
-  }
+  void CALLBACK TimerProc(void*, BOOLEAN) {
+    if (isGameInFocus()) {
+      auto wheelDelta = getWheelDelta();
 
-  return CallNextHookEx(keyboardHook, code, wParam, lParam);
-}
-
-DWORD getWheelDelta() {
-  DWORD r = 0;
-
-  if (spamDown) {
-    r -= WHEEL_DELTA;
-  } else if (spamUp) {
-    r += WHEEL_DELTA;
-  }
-
-  return r;
-}
-
-void CALLBACK TimerProc(void*, BOOLEAN) {
-  if (isGameInFocus()) {
-    auto wheelDelta = getWheelDelta();
-
-    if (wheelDelta != 0) {
-      mouse_event(MOUSEEVENTF_WHEEL, 0, 0, wheelDelta, 0);
-    } 
-  } else {
-    spamUp = false;
-    spamDown = false;
-  }
-}
-
-struct FileDeleter {
-  void operator()(std::FILE* file) const noexcept { std::fclose(file); }
-};
-
-using unique_file = std::unique_ptr<std::FILE, FileDeleter>;
-
-// There are a few valid possible configurations:
-// <num>: <num> is the scroll down key.
-// <num> <c>: <num> is the key for either scroll up or down depending on whether
-// or not <c> is `u` or not.
-// <num1> <num2>: <num1> is the scroll down key. <num2> is the scroll up key.
-void readConfiguration() {
-  auto fileName = "bindings.txt";
-  unique_file file(std::fopen(fileName, "rb"));
-  if (!file) {
-    throw std::runtime_error("Unable to open configuration file \""s + fileName + "\".");
-  }
-
-  auto keyCodesRead = std::fscanf(file.get(), "%li %li", &downKeyCode, &upKeyCode);
-
-  if (keyCodesRead < 1) {
-    throw std::runtime_error("Unable to read key code from configuration file \""s + fileName + "\".");
-  }
-
-  if (keyCodesRead < 2) {
-    char wheelDirection = 'd';
-
-    if (std::fscanf(file.get(), " %c", &wheelDirection) == 1) {
-      switch (wheelDirection | 32) { // `|32` converts ASCII letters to lower case.
-        case 'd':
-          break;
-        case 'u': {
-          upKeyCode = downKeyCode;
-          downKeyCode = 0;
-
-          break;
-        }
-        default: {
-          throw std::runtime_error("Invalid wheel direction '+"s + wheelDirection + "+' in configuration file \"" + fileName + "\".");
-        }
-      }
-    }
-  }
-
-  if (downKeyCode > VK_OEM_CLEAR) {
-    throw std::runtime_error("Invalid key code " + std::to_string(downKeyCode) + " in configuration file \""s + fileName + "\".");
-  }
-
-  if (upKeyCode > VK_OEM_CLEAR) {
-    throw std::runtime_error("Invalid key code " + std::to_string(upKeyCode) + " in configuration file \""s + fileName + "\".");
-  }
-
-  if (downKeyCode == upKeyCode) {
-    if (downKeyCode == 0) {
-      throw std::runtime_error("No key was bound to either scroll direction in configuration file \""s + fileName + "\".");
+      if (wheelDelta != 0) {
+        mouse_event(MOUSEEVENTF_WHEEL, 0, 0, wheelDelta, 0);
+      } 
     } else {
-      throw std::runtime_error("Scroll up and scroll down both have the same binding in configuration file \""s + fileName + "\".");
+      spamUp = false;
+      spamDown = false;
     }
+  }
+
+  struct FileDeleter {
+    void operator()(std::FILE* file) const noexcept { std::fclose(file); }
+  };
+
+  using unique_file = std::unique_ptr<std::FILE, FileDeleter>;
+
+  // There are a few valid possible configurations:
+  // <num>: <num> is the scroll down key.
+  // <num> <c>: <num> is the key for either scroll up or down depending on whether
+  // or not <c> is `u` or not.
+  // <num1> <num2>: <num1> is the scroll down key. <num2> is the scroll up key.
+  void readConfiguration() {
+    auto fileName = "bindings.txt";
+    unique_file file(std::fopen(fileName, "rb"));
+    if (!file) {
+      throw std::runtime_error("Unable to open configuration file \""s + fileName + "\".");
+    }
+
+    auto keyCodesRead = std::fscanf(file.get(), "%li %li", &downKeyCode, &upKeyCode);
+
+    if (keyCodesRead < 1) {
+      throw std::runtime_error("Unable to read key code from configuration file \""s + fileName + "\".");
+    }
+
+    if (keyCodesRead < 2) {
+      char wheelDirection = 'd';
+
+      if (std::fscanf(file.get(), " %c", &wheelDirection) == 1) {
+        switch (wheelDirection | 32) { // `|32` converts ASCII letters to lower case.
+          case 'd':
+            break;
+          case 'u': {
+            upKeyCode = downKeyCode;
+            downKeyCode = 0;
+
+            break;
+          }
+          default: {
+            throw std::runtime_error("Invalid wheel direction '+"s + wheelDirection + "+' in configuration file \"" + fileName + "\".");
+          }
+        }
+      }
+    }
+
+    if (downKeyCode > VK_OEM_CLEAR) {
+      throw std::runtime_error("Invalid key code " + std::to_string(downKeyCode) + " in configuration file \""s + fileName + "\".");
+    }
+
+    if (upKeyCode > VK_OEM_CLEAR) {
+      throw std::runtime_error("Invalid key code " + std::to_string(upKeyCode) + " in configuration file \""s + fileName + "\".");
+    }
+
+    if (downKeyCode == upKeyCode) {
+      if (downKeyCode == 0) {
+        throw std::runtime_error("No key was bound to either scroll direction in configuration file \""s + fileName + "\".");
+      } else {
+        throw std::runtime_error("Scroll up and scroll down both have the same binding in configuration file \""s + fileName + "\".");
+      }
+    }
+  }
+
+  bool isMouseButton(DWORD keyCode) {
+    return (VK_LBUTTON <= keyCode && keyCode <= VK_RBUTTON) || (VK_MBUTTON <= keyCode && keyCode <= VK_XBUTTON2);
+  }
+
+  bool isKeyboardKey(DWORD keyCode) {
+    return keyCode != 0 && !isMouseButton(keyCode);
   }
 }
 
-bool isMouseButton(DWORD keyCode) {
-  return (VK_LBUTTON <= keyCode && keyCode <= VK_RBUTTON) ||
-         (VK_MBUTTON <= keyCode && keyCode <= VK_XBUTTON2);
-}
-
-bool isKeyboardKey(DWORD keyCode) {
-  return keyCode != 0 && !isMouseButton(keyCode);
-}
-}
-
-int strcompare(const char* One, const char* Two, bool CaseSensitive)
-{
+int strcompare(const char* firstString, const char* secondString, bool caseSensitive) {
 #if defined _WIN32 || defined _WIN64
-  return CaseSensitive ? strcmp(One, Two) : _stricmp(One, Two);
+  return caseSensitive ? strcmp(firstString, secondString) : _stricmp(firstString, secondString);
 #else
-  return CaseSensitive ? strcmp(One, Two) : strcasecmp(One, Two);
+  return caseSensitive ? strcmp(firstString, secondString) : strcasecmp(firstString, secondString);
 #endif
 }
 
-MODULEENTRY32 getModuleInfo(std::uint32_t ProcessID, const char* ModuleName) {
+MODULEENTRY32 getModuleInfo(std::uint32_t processID, const char* moduleName) {
   void* hSnap = nullptr;
-  MODULEENTRY32 mod32 = { 0 };
+  MODULEENTRY32 mod32 = {0};
 
-  if ((hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, ProcessID)) == INVALID_HANDLE_VALUE) {
+  if ((hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, processID)) == INVALID_HANDLE_VALUE) {
     return mod32;
   }
 
   mod32.dwSize = sizeof(MODULEENTRY32);
   while (Module32Next(hSnap, &mod32)) {
-    if (!strcompare(ModuleName, mod32.szModule, false)) {
+    if (!strcompare(moduleName, mod32.szModule, false)) {
       CloseHandle(hSnap);
       return mod32;
     }
   }
 
   CloseHandle(hSnap);
-  mod32 = { 0 };
+  mod32 = {0};
   return mod32;
 }
 
