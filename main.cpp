@@ -200,10 +200,9 @@ namespace {
     return r;
   }
 
-  void CALLBACK TimerProc(void*, BOOLEAN) {
+  void CALLBACK TimerProc(UINT, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR) {
     if (isGameInFocus()) {
       auto wheelDelta = getWheelDelta();
-
       if (wheelDelta != 0) {
         mouse_event(MOUSEEVENTF_WHEEL, 0, 0, wheelDelta, 0);
       } 
@@ -407,11 +406,7 @@ void setupInputHooks() {
 
 void startTimer() {
   DWORD period = 10; // Execute every 10 milliseconds, 100 times a second.
-
-  HANDLE timer;
-  if (!CreateTimerQueueTimer(&timer, nullptr, TimerProc, nullptr, 0, period, WT_EXECUTEDEFAULT)) {
-    throw std::system_error(GetLastError(), std::system_category());
-  }
+  timeSetEvent(period, 0, TimerProc, 0, TIME_PERIODIC);
 
   while (true) {
     MSG message;
@@ -423,6 +418,8 @@ void startTimer() {
 }
 
 int main(int argc, char** argv) {
+  // Request a 1ms minimum time resolution for newer Windows versions.
+  timeBeginPeriod(1);
   try {
     LPCTSTR consoleTitle = "DOOM Eternal Freescroll Macro";
     SetConsoleTitle(consoleTitle);
@@ -438,7 +435,7 @@ int main(int argc, char** argv) {
   } catch (std::exception& e) {
     std::fprintf(stderr, "Error: %s\n\n", e.what());    
     waitForUserToExit();
-
-    return 1;
   }
+  timeEndPeriod(1);
+  return 1;
 }
