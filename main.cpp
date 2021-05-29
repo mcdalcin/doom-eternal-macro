@@ -91,55 +91,39 @@ namespace {
     bool isDown = false;
     switch (wParam) {
       case WM_LBUTTONDOWN:
-      {
         isDown = true;
 
         [[fallthrough]];
-      }
       case WM_LBUTTONUP:
-      {
         keyCode = VK_LBUTTON;
         break;
-      }
       case WM_RBUTTONDOWN:
-      {
         isDown = true;
 
         [[fallthrough]];
-      }
       case WM_RBUTTONUP:
-      {
         keyCode = VK_RBUTTON;
         break;
-      }
       case WM_MBUTTONDOWN:
-      {
         isDown = true;
 
         [[fallthrough]];
-      }
       case WM_MBUTTONUP:
-      {
         keyCode = VK_MBUTTON;
         break;
-      }
       case WM_XBUTTONDOWN:
-      {
         isDown = true;
 
         [[fallthrough]];
-      }
-      case WM_XBUTTONUP:
-      {
+      case WM_XBUTTONUP: {
         auto &info = *reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
         keyCode = VK_XBUTTON1 + HIWORD(info.mouseData) - XBUTTON1;
 
         break;
       }
       case WM_MOUSEWHEEL:
-      {
         if (spamUp || spamDown) {
-          MSLLHOOKSTRUCT *info = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
+          auto *info = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
           bool scrollingDown = static_cast<std::make_signed_t<WORD>>(HIWORD(info->mouseData)) < 0;
 
           // If macro is active prevent manual scrolling of the opposite direction for proper freescroll emulation
@@ -147,7 +131,6 @@ namespace {
             return 1;
           }
         }
-      }
     }
 
     handleKey(keyCode, isDown);
@@ -168,31 +151,23 @@ namespace {
 
     switch (wParam) {
       case WM_KEYDOWN:
-      {
         [[fallthrough]];
-      }
       case WM_SYSKEYDOWN:
-      {
         if (info.vkCode == upKeyCode) {
           upKeyRepeatCount++;
-        }         else if (info.vkCode == downKeyCode) {
+        } else if (info.vkCode == downKeyCode) {
           downKeyRepeatCount++;
         }
         break;
-      }
       case WM_KEYUP:
-      {
         [[fallthrough]];
-      }
       case WM_SYSKEYUP:
-      {
         if (info.vkCode == upKeyCode) {
           upKeyRepeatCount = 0;
-        }         else if (info.vkCode == downKeyCode) {
+        } else if (info.vkCode == downKeyCode) {
           downKeyRepeatCount = 0;
         }
         break;
-      }
     }
 
     if (info.vkCode == upKeyCode && upKeyRepeatCount <= 1 || info.vkCode == downKeyCode && downKeyRepeatCount <= 1) {
@@ -260,16 +235,11 @@ namespace {
           case 'd':
             break;
           case 'u':
-          {
             upKeyCode = downKeyCode;
             downKeyCode = 0;
-
             break;
-          }
           default:
-          {
             throw std::runtime_error("Invalid wheel direction '+"s + wheelDirection + "+' in configuration file \"" + fileName + "\".");
-          }
         }
       }
     }
