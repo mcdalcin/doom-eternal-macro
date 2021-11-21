@@ -11,7 +11,7 @@
 using namespace std::literals;
 
 namespace {
-  std::string DOOM_ETERNAL_WINDOW_NAME = "DOOMEternal";
+  const std::string DOOM_ETERNAL_WINDOW_NAME = "DOOMEternal";
 
   HHOOK mouseHook;
   HHOOK keyboardHook;
