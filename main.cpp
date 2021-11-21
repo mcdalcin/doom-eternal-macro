@@ -19,8 +19,8 @@ namespace {
   DWORD downKeyCode = 0;
   DWORD upKeyCode = 0;
 
-  volatile bool spamUp = false;
-  volatile bool spamDown = false;
+  std::atomic<bool> spamUp = false;
+  std::atomic<bool> spamDown = false;
 
   int upKeyRepeatCount = 0;
   int downKeyRepeatCount = 0;
