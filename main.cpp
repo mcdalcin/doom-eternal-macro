@@ -11,14 +11,16 @@
 using namespace std::literals;
 
 namespace {
+  std::string DOOM_ETERNAL_WINDOW_NAME = "DOOMEternal";
+
   HHOOK mouseHook;
   HHOOK keyboardHook;
 
   DWORD downKeyCode = 0;
   DWORD upKeyCode = 0;
 
-  bool spamUp = false;
-  bool spamDown = false;
+  volatile bool spamUp = false;
+  volatile bool spamDown = false;
 
   int upKeyRepeatCount = 0;
   int downKeyRepeatCount = 0;
@@ -32,28 +34,15 @@ namespace {
 
   bool isGameInFocus() {
     HWND window = GetForegroundWindow();
+    char buffer[256];
+    GetWindowText(window, buffer, sizeof(buffer));
 
-    constexpr int bufferSize = 35;
-    wchar_t buffer[bufferSize];
-
-    const std::wstring_view str = {buffer, static_cast<std::size_t>(GetClassNameW(window, buffer, bufferSize))};
-    if (str != L"Ghost_CLASS") {
-      return false;
-    }
-
-    POINT point;
-
-    [[maybe_unused]] const BOOL r = GetCursorPos(&point);
-    assert(r);
-
-    if (window != WindowFromPoint(point)) {
-      return false;
-    }
-
-    return true;
+    // Match any window starting with "DOOMEternal".
+    std::string foregroundWindowText(buffer);
+    return foregroundWindowText.substr(0, DOOM_ETERNAL_WINDOW_NAME.length()) == DOOM_ETERNAL_WINDOW_NAME;
   }
 
-  bool handleKey(const DWORD keyCode, const bool isDown) {
+  void handleKey(const DWORD keyCode, const bool isDown) {
     if (keyCode == downKeyCode) {
       if (isDown) {
         spamUp = false;
@@ -73,10 +62,10 @@ namespace {
     }
 
     if ((!spamUp && !spamDown) || !isGameInFocus()) {
-      return false;
+      return;
     }
 
-    return true;
+    return;
   }
 
   LRESULT CALLBACK LowLevelMouseProc(const int code, const WPARAM wParam, const LPARAM lParam) {
@@ -117,7 +106,6 @@ namespace {
       case WM_XBUTTONUP: {
         auto &info = *reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
         keyCode = VK_XBUTTON1 + HIWORD(info.mouseData) - XBUTTON1;
-
         break;
       }
       case WM_MOUSEWHEEL:
@@ -125,11 +113,12 @@ namespace {
           auto *info = reinterpret_cast<MSLLHOOKSTRUCT *>(lParam);
           const bool scrollingDown = static_cast<std::make_signed_t<WORD>>(HIWORD(info->mouseData)) < 0;
 
-          // If macro is active prevent manual scrolling of the opposite direction for proper freescroll emulation
+          // If macro is active prevent manual scrolling of the opposite direction for proper freescroll emulation.
           if (spamDown == !scrollingDown || spamUp == scrollingDown) {
             return 1;
           }
         }
+        break;
     }
 
     handleKey(keyCode, isDown);
@@ -166,6 +155,7 @@ namespace {
         } else if (info.vkCode == downKeyCode) {
           downKeyRepeatCount = 0;
         }
+        break;
       default:
         break;
     }
@@ -270,59 +260,6 @@ namespace {
   }
 }
 
-int strcompare(const char *firstString, const char *secondString, const bool caseSensitive) {
-#if defined _WIN32 || defined _WIN64
-  return caseSensitive ? strcmp(firstString, secondString) : _stricmp(firstString, secondString);
-#else
-  return caseSensitive ? strcmp(firstString, secondString) : strcasecmp(firstString, secondString);
-#endif
-}
-
-MODULEENTRY32 getModuleInfo(const std::uint32_t processID, const char *moduleName) {
-  void *hSnap = nullptr;
-  MODULEENTRY32 mod32 = { 0 };
-
-  if ((hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, processID)) == INVALID_HANDLE_VALUE) {
-    return mod32;
-  }
-
-  mod32.dwSize = sizeof(MODULEENTRY32);
-  while (Module32Next(hSnap, &mod32)) {
-    if (!strcompare(moduleName, mod32.szModule, false)) {
-      CloseHandle(hSnap);
-      return mod32;
-    }
-  }
-
-  CloseHandle(hSnap);
-  mod32 = { 0 };
-  return mod32;
-}
-
-bool detectGameVersion() {
-  PROCESSENTRY32 entry;
-  entry.dwSize = sizeof(PROCESSENTRY32);
-
-  HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
-
-  if (Process32First(snapshot, &entry) == TRUE) {
-    while (Process32Next(snapshot, &entry) == TRUE) {
-      if (stricmp(entry.szExeFile, "DOOMEternalx64vk.exe") == 0) {
-        HANDLE processHandle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, entry.th32ProcessID);
-        MODULEENTRY32 moduleEntry = getModuleInfo(entry.th32ProcessID, "DOOMEternalx64vk.exe");
-
-        std::cout << "Found game version " << moduleEntry.modBaseSize << std::endl;
-
-        return true;
-      }
-    }
-
-    throw std::runtime_error("Game is not running. Make sure to start the game first, then the macro.");
-  }
-
-  return false;
-}
-
 void setupMouseHook() {
   if (isMouseButton(downKeyCode) || isMouseButton(upKeyCode)) {
     mouseHook = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, nullptr, 0);
@@ -366,14 +303,10 @@ int main(int argc, char **argv) {
     const LPCTSTR consoleTitle = "DOOM Eternal Freescroll Macro";
     SetConsoleTitle(consoleTitle);
 
-    if (detectGameVersion()) {
-      readConfiguration();
-      setupInputHooks();
-
-      std::cout << "Macro is running...\n";
-
-      startTimer();
-    }
+    readConfiguration();
+    setupInputHooks();
+    std::cout << "Macro is running...\n";
+    startTimer();
   } catch (std::exception &e) {
     std::fprintf(stderr, "Error: %s\n\n", e.what());
     waitForUserToExit();
