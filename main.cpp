@@ -60,12 +60,6 @@ namespace {
         spamUp = false;
       }
     }
-
-    if ((!spamUp && !spamDown) || !isGameInFocus()) {
-      return;
-    }
-
-    return;
   }
 
   LRESULT CALLBACK LowLevelMouseProc(const int code, const WPARAM wParam, const LPARAM lParam) {
